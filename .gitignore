@@ -1,0 +1,11 @@
+.venv/
+.vscode/
+__pycache__/
+*.py[cod]
+.streamlit/secrets.toml
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+artifacts/models/*.keras
+artifacts/models/*.h5
+artifacts/preprocessors/*.pkl
