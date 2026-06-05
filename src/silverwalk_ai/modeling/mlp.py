@@ -31,6 +31,7 @@ class MLPTrainingConfig:
     early_stopping_patience: int = 10
     reduce_lr_patience: int = 4
     random_state: int = 42
+    verbose: int = 2
 
     def to_dict(self) -> dict[str, Any]:
         """리포트 저장을 위해 JSON으로 직렬화 가능한 dict를 반환한다."""
@@ -44,6 +45,7 @@ class MLPTrainingConfig:
             "early_stopping_patience": self.early_stopping_patience,
             "reduce_lr_patience": self.reduce_lr_patience,
             "random_state": self.random_state,
+            "verbose": self.verbose,
         }
 
 
@@ -256,7 +258,7 @@ def train_mlp_model(
         epochs=config.epochs,
         batch_size=config.batch_size,
         callbacks=callbacks,
-        verbose=2,
+        verbose=config.verbose,
     )
     return model, history, features
 

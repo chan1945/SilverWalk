@@ -70,6 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--early-stopping-patience", type=int, default=10)
     parser.add_argument("--reduce-lr-patience", type=int, default=4)
     parser.add_argument("--random-state", type=int, default=42)
+    parser.add_argument("--verbose", type=int, choices=[0, 1, 2], default=2)
     parser.add_argument(
         "--device",
         choices=["auto", "gpu", "cpu"],
@@ -138,6 +139,7 @@ def main() -> None:
         early_stopping_patience=args.early_stopping_patience,
         reduce_lr_patience=args.reduce_lr_patience,
         random_state=args.random_state,
+        verbose=args.verbose,
     )
 
     # train split으로 학습하고 val split은 콜백과 모델 선택에만 사용한다.
