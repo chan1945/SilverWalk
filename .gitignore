@@ -9,4 +9,9 @@ __pycache__/
 artifacts/models/*.keras
 artifacts/models/*.h5
 artifacts/preprocessors/*.pkl
-data/
+artifacts/preprocessors/*.joblib
+artifacts/preprocessors/*_preprocess_config.json
+artifacts/predictions/*.csv
+artifacts/reports/*.csv
+artifacts/reports/*.json
+/data/

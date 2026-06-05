@@ -24,6 +24,7 @@ class DataPaths:
     predictions: Path = PROJECT_ROOT / "artifacts" / "predictions"
     maps: Path = PROJECT_ROOT / "artifacts" / "maps"
     models: Path = PROJECT_ROOT / "artifacts" / "models"
+    preprocessors: Path = PROJECT_ROOT / "artifacts" / "preprocessors"
     reports: Path = PROJECT_ROOT / "artifacts" / "reports"
 
 
@@ -41,6 +42,7 @@ def ensure_project_dirs() -> None:
         PATHS.predictions,
         PATHS.maps,
         PATHS.models,
+        PATHS.preprocessors,
         PATHS.reports,
     ):
         path.mkdir(parents=True, exist_ok=True)
