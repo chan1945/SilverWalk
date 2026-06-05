@@ -1,22 +1,36 @@
 # SilverWalk
 
-SilverWalk는 도로를 25m 간격으로 나눈 각 포인트 기준으로 노인보행사고 위험도를 예측하고 지도에서 확인하는 Streamlit 앱 프로젝트입니다.
+SilverWalk는 서울시 도로 주변 포인트를 기준으로 노인보행사고 위험도를 지도에서 확인하는 Streamlit 앱 프로젝트입니다.
 
-## 사전 준비
+현재 앱은 다음 데이터를 사용합니다.
 
-- Python 3.10 이상
-- Git
-- VWorld API Key
+- 서울시 경계: 온라인 공개 GeoJSON을 앱 실행 시 로딩합니다. 로컬 경계 파일은 필요하지 않습니다.
+- 위험도 포인트: `data/original_train_data/seoul_road_points.csv` 로컬 CSV를 사용합니다.
 
-`data/`의 원본 공간 데이터와 학습 데이터는 GitHub 저장소에 포함하지 않습니다. 팀원은 별도로 공유받은 데이터를 프로젝트 루트의 `data/` 아래에 배치해야 합니다.
+`data/`는 GitHub 저장소에 포함하지 않습니다. 팀원은 저장소를 clone한 뒤 필요한 CSV 파일만 별도로 전달받아 같은 경로에 배치하면 됩니다. Git LFS는 필요하지 않습니다.
 
-## Ubuntu 실행 방법
+## Mac 실행 방법
 
-### 1. 필수 패키지 설치
+### 1. 필수 프로그램 설치
+
+Mac에 Git과 Python 3.10 이상이 필요합니다.
+
+Homebrew를 사용하는 경우:
 
 ```bash
-sudo apt update
-sudo apt install -y git python3 python3-venv python3-pip
+brew install git python
+```
+
+Homebrew가 없다면 아래에서 설치해도 됩니다.
+
+- Git: https://git-scm.com/download/mac
+- Python: https://www.python.org/downloads/macos/
+
+설치 확인:
+
+```bash
+git --version
+python3 --version
 ```
 
 ### 2. 저장소 clone
@@ -26,30 +40,78 @@ git clone https://github.com/chan1945/SilverWalk.git
 cd SilverWalk
 ```
 
-### 3. 가상환경 생성 및 의존성 설치
+### 3. 가상환경 생성 및 활성화
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
+python -m pip install --upgrade pip
+```
+
+터미널 프롬프트 앞에 `(.venv)`가 보이면 가상환경이 활성화된 상태입니다.
+
+### 4. 패키지 설치
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 4. VWorld API Key 설정
+Mac에서 TensorFlow 또는 CUDA 관련 패키지 설치가 실패하고 Streamlit 앱만 실행하면 되는 경우에는 아래 명령으로 앱 실행에 필요한 패키지만 설치할 수 있습니다.
 
 ```bash
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
-nano .streamlit/secrets.toml
+pip install streamlit streamlit-folium folium geopandas shapely pyogrio fiona pandas numpy openpyxl scikit-learn matplotlib
 ```
 
-`.streamlit/secrets.toml`에 발급받은 키를 입력합니다.
+이 경우 MLP 학습 코드는 실행하지 못할 수 있지만, 현재 지도 앱 실행에는 충분합니다.
+
+### 5. 데이터 파일 배치
+
+팀원에게 공유한 `seoul_road_points.csv` 파일을 아래 경로에 둡니다.
+
+```text
+data/original_train_data/seoul_road_points.csv
+```
+
+폴더가 없다면 먼저 생성합니다.
+
+```bash
+mkdir -p data/original_train_data
+```
+
+확인:
+
+```bash
+ls -lh data/original_train_data/seoul_road_points.csv
+```
+
+경계 시각화용 `data/SIGUNGU` 폴더나 Shapefile은 필요하지 않습니다.
+
+### 6. VWorld API Key 설정
+
+VWorld API Key는 선택 사항입니다.
+
+- 키가 있으면 VWorld 배경지도를 사용합니다.
+- 키가 없으면 앱이 기본 배경지도로 실행됩니다.
+
+키를 사용할 경우 `.streamlit/secrets.toml` 파일을 만들고 아래처럼 입력합니다.
+
+```bash
+mkdir -p .streamlit
+nano .streamlit/secrets.toml
+```
 
 ```toml
 [vworld]
 api_key = "발급받은_API_KEY"
 ```
 
-### 5. 앱 실행
+환경변수로 설정해도 됩니다.
+
+```bash
+export VWORLD_API_KEY="발급받은_API_KEY"
+```
+
+### 7. 앱 실행
 
 ```bash
 streamlit run streamlit_app.py
@@ -61,27 +123,68 @@ streamlit run streamlit_app.py
 http://localhost:8501
 ```
 
+## 자주 나는 문제
+
+### `streamlit: command not found`
+
+가상환경이 활성화되지 않았거나 패키지 설치가 되지 않은 상태입니다.
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### `FileNotFoundError: seoul_road_points.csv`
+
+위험도 포인트 CSV가 없는 상태입니다. 아래 경로에 파일이 있는지 확인합니다.
+
+```text
+data/original_train_data/seoul_road_points.csv
+```
+
+### 지도가 뜨지 않거나 경계가 표시되지 않음
+
+서울시 경계는 온라인 GeoJSON을 받아옵니다. 인터넷 연결이 필요합니다.
+
+### VWorld 배경지도가 뜨지 않음
+
+VWorld API Key가 없거나 잘못된 경우입니다. 앱은 기본 배경지도로도 실행됩니다.
+
+## Ubuntu 실행 방법
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip
+
+git clone https://github.com/chan1945/SilverWalk.git
+cd SilverWalk
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+mkdir -p data/original_train_data
+# 공유받은 seoul_road_points.csv를 data/original_train_data/ 아래에 배치
+
+streamlit run streamlit_app.py
+```
+
 ## Windows 실행 방법
-
-### 1. 필수 프로그램 설치
-
-- Python 3.10 이상: https://www.python.org/downloads/
-- Git for Windows: https://git-scm.com/download/win
-
-### 2. 저장소 clone
 
 ```powershell
 git clone https://github.com/chan1945/SilverWalk.git
 cd SilverWalk
-```
 
-### 3. 가상환경 생성 및 의존성 설치
-
-```powershell
 py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+
+New-Item -ItemType Directory -Force data\original_train_data
+# 공유받은 seoul_road_points.csv를 data\original_train_data\ 아래에 배치
+
+streamlit run streamlit_app.py
 ```
 
 PowerShell 실행 정책 때문에 가상환경 활성화가 막히면 아래 명령을 실행한 뒤 다시 활성화합니다.
@@ -91,56 +194,11 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 4. VWorld API Key 설정
-
-```powershell
-Copy-Item .streamlit\secrets.toml.example .streamlit\secrets.toml
-notepad .streamlit\secrets.toml
-```
-
-`.streamlit\secrets.toml`에 발급받은 키를 입력합니다.
-
-```toml
-[vworld]
-api_key = "발급받은_API_KEY"
-```
-
-### 5. 앱 실행
-
-```powershell
-streamlit run streamlit_app.py
-```
-
-브라우저에서 아래 주소로 접속합니다.
-
-```text
-http://localhost:8501
-```
-
-## 참고: VWorld API Key를 환경변수로 설정하기
-
-`secrets.toml` 대신 환경변수로도 설정할 수 있습니다.
-
-Ubuntu:
-
-```bash
-export VWORLD_API_KEY="발급받은_API_KEY"
-streamlit run streamlit_app.py
-```
-
-Windows PowerShell:
-
-```powershell
-$env:VWORLD_API_KEY="발급받은_API_KEY"
-streamlit run streamlit_app.py
-```
-
 ## 주요 구조
 
 ```text
 SilverWalk/
 ├── streamlit_app.py
-├── pages/
 ├── app/
 ├── src/silverwalk_ai/
 ├── data/
@@ -153,8 +211,7 @@ SilverWalk/
 ```
 
 - `streamlit_app.py`: Streamlit 앱 진입점
-- `pages/`: 데이터 현황, 지도 미리보기, 예측 결과 화면
 - `app/`: Streamlit 화면 구성 및 실행 보조 코드
-- `src/silverwalk_ai/`: 데이터 처리, 공간 분석, 모델링, 예측, 시각화 공통 패키지
-- `data/`: 원본/중간/최종 데이터
-- `artifacts/`: 모델, 전처리 객체, 예측 결과, 지도 HTML, 리포트
+- `src/silverwalk_ai/`: 데이터 처리, 모델링, 시각화 공통 패키지
+- `data/`: 로컬 데이터 위치. GitHub에는 포함하지 않음
+- `artifacts/`: 모델, 전처리 객체, 예측 결과, 리포트
