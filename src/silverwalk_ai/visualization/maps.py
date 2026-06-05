@@ -55,6 +55,7 @@ def make_base_map(
     zoom_start: int = 12,
     vworld_api_key: str | None = None,
     vworld_layer: str = "Base",
+    show_base_tiles: bool = True,
 ):
     import folium
 
@@ -64,6 +65,9 @@ def make_base_map(
         tiles=None,
         control_scale=True,
     )
+
+    if not show_base_tiles:
+        return map_obj
 
     if vworld_api_key:
         add_vworld_wmts_layer(map_obj, vworld_api_key, vworld_layer)

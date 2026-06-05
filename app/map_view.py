@@ -15,7 +15,7 @@ from silverwalk_ai.visualization.maps import VWORLD_LAYER_TYPES, make_base_map
 
 DEFAULT_SIDO = "서울특별시"
 DEFAULT_SIGUNGU = "전체"
-ROAD_COLUMNS = ["LINK_ID", "ROAD_NAME", "ROAD_RANK", "MAX_SPD", "LANES", "LENGTH", "geometry"]
+HIGH_RISK_THRESHOLD = 50.0
 
 
 @dataclass(frozen=True)
@@ -82,30 +82,14 @@ def _load_sigungu_boundary(sido_code: str, sigungu_code: str | None):
 
 
 @st.cache_data(show_spinner=False)
-def _load_roads_for_region(sido_code: str, sigungu_code: str | None, simplify_tolerance: float):
-    import geopandas as gpd
+def _load_high_risk_points(threshold: float):
+    import pandas as pd
 
-    boundary_gdf = _load_sigungu_boundary_projected(sido_code, sigungu_code)
-    if boundary_gdf.empty:
-        return gpd.GeoDataFrame(columns=ROAD_COLUMNS, geometry="geometry", crs="EPSG:4326")
-
-    path = PATHS.nodelink / "MOCT_LINK.shp"
-    boundary_geometry = boundary_gdf.geometry.union_all()
-
-    # 시군구 경계 bbox로 먼저 읽기 범위를 줄이고, 실제 경계 교차 여부로 최종 필터링한다.
-    gdf = gpd.read_file(path, bbox=tuple(boundary_gdf.total_bounds))
-    gdf = gdf[gdf.geometry.intersects(boundary_geometry)]
-    if gdf.empty:
-        return gpd.GeoDataFrame(columns=ROAD_COLUMNS, geometry="geometry", crs="EPSG:4326")
-
-    gdf = gdf[[column for column in ROAD_COLUMNS if column in gdf.columns]]
-    if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
-        gdf = gdf.to_crs(4326)
-
-    if simplify_tolerance > 0:
-        # 성능 모드에서만 화면 표시용 선형 geometry를 단순화한다.
-        gdf["geometry"] = gdf.geometry.simplify(simplify_tolerance, preserve_topology=True)
-    return gdf
+    path = PATHS.data / "original_train_data" / "seoul_road_points.csv"
+    frame = pd.read_csv(path, usecols=["POINT_ID", "위도", "경도", "위험도"])
+    frame = frame.dropna(subset=["위도", "경도", "위험도"])
+    frame = frame[frame["위험도"] > threshold].copy()
+    return frame.sort_values("위험도", ascending=False)
 
 
 def _select_region() -> RegionSelection:
@@ -143,45 +127,24 @@ def _select_region() -> RegionSelection:
 
 def _map_center(boundary_gdf) -> tuple[float, float]:
     if boundary_gdf.empty:
-        return 35.1803, 128.1076
+        return 37.5665, 126.9780
 
     centroid = boundary_gdf.geometry.union_all().centroid
     return centroid.y, centroid.x
 
 
-def _ranked_road_style(feature):
-    road_rank = feature["properties"].get("ROAD_RANK")
-    color_by_rank = {
-        "101": "#ef4444",
-        "102": "#f97316",
-        "103": "#eab308",
-        "104": "#22c55e",
-        "105": "#14b8a6",
-        "106": "#2563eb",
-        "107": "#334155",
-    }
-    return {
-        "color": color_by_rank.get(str(road_rank), "#475569"),
-        "weight": 2.0,
-        "opacity": 0.9,
-    }
-
-
-def _clear_road_style(_feature):
-    return {
-        "color": "#0f172a",
-        "weight": 1.6,
-        "opacity": 0.94,
-    }
+def _high_risk_point_color(risk: float) -> str:
+    if risk >= 150:
+        return "#7f1d1d"
+    if risk >= 100:
+        return "#dc2626"
+    if risk >= 75:
+        return "#f97316"
+    return "#facc15"
 
 
 def render_map_app() -> None:
     selection = _select_region()
-
-    with st.sidebar.expander("도로 표시", expanded=True):
-        show_roads = st.checkbox("도로 링크 표시", value=True)
-        road_style_mode = st.radio("도로 스타일", ["전체 도로 선명", "도로등급별 색상"], horizontal=False)
-        simplify_roads = st.checkbox("성능 모드", value=False)
 
     with st.sidebar.expander("배경지도", expanded=False):
         vworld_layer = st.selectbox("VWorld 레이어", list(VWORLD_LAYER_TYPES), index=0)
@@ -190,10 +153,7 @@ def render_map_app() -> None:
             st.caption("API key가 없으면 임시 기본 배경지도를 표시합니다.")
 
     boundary_gdf = _load_sigungu_boundary(selection.sido_code, selection.sigungu_code)
-    roads_gdf = None
-    if show_roads:
-        simplify_tolerance = 0.00001 if simplify_roads else 0.0
-        roads_gdf = _load_roads_for_region(selection.sido_code, selection.sigungu_code, simplify_tolerance)
+    high_risk_points = _load_high_risk_points(HIGH_RISK_THRESHOLD)
     center = _map_center(boundary_gdf)
 
     import folium
@@ -221,21 +181,28 @@ def render_map_app() -> None:
     else:
         st.warning("선택한 시군구 경계 데이터를 찾지 못했습니다.")
 
-    if show_roads and roads_gdf is not None and not roads_gdf.empty:
-        tooltip_fields = [
-            column
-            for column in ["ROAD_NAME", "LINK_ID", "ROAD_RANK", "MAX_SPD", "LANES", "LENGTH"]
-            if column in roads_gdf
-        ]
-        folium.GeoJson(
-            roads_gdf.to_json(),
-            name="도로 링크",
-            tooltip=folium.GeoJsonTooltip(fields=tooltip_fields),
-            style_function=_clear_road_style if road_style_mode == "전체 도로 선명" else _ranked_road_style,
-        ).add_to(map_obj)
-        st.sidebar.caption(f"도로 링크 {len(roads_gdf):,}개")
-    elif show_roads:
-        st.sidebar.caption("도로 링크 0개")
+    high_risk_layer = folium.FeatureGroup(
+        name=f"위험도 {HIGH_RISK_THRESHOLD:g} 초과 포인트",
+        show=True,
+    )
+    for row in high_risk_points.itertuples(index=False):
+        risk = float(getattr(row, "위험도"))
+        color = _high_risk_point_color(risk)
+        folium.CircleMarker(
+            location=(float(getattr(row, "위도")), float(getattr(row, "경도"))),
+            radius=5,
+            color=color,
+            weight=1,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.82,
+            tooltip=(
+                f"POINT_ID: {int(getattr(row, 'POINT_ID'))}<br>"
+                f"위험도: {risk:.3f}"
+            ),
+        ).add_to(high_risk_layer)
+    high_risk_layer.add_to(map_obj)
+    st.sidebar.caption(f"위험도 {HIGH_RISK_THRESHOLD:g} 초과 포인트 {len(high_risk_points):,}개")
 
     folium.LayerControl(collapsed=False).add_to(map_obj)
     st_folium(map_obj, height=760, width="100%")
