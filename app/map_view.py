@@ -13,16 +13,23 @@ from silverwalk_ai.data.paths import PATHS
 from silverwalk_ai.visualization.maps import VWORLD_LAYER_TYPES, make_base_map
 
 
-DEFAULT_SIDO = "경상남도"
-DEFAULT_SIGUNGU = "진주시"
+DEFAULT_SIDO = "서울특별시"
+DEFAULT_SIGUNGU = "전체"
 ROAD_COLUMNS = ["LINK_ID", "ROAD_NAME", "ROAD_RANK", "MAX_SPD", "LANES", "LENGTH", "geometry"]
 
 
 @dataclass(frozen=True)
 class RegionSelection:
+    sido_code: str
     sido_name: str
     sigungu_name: str
-    sigungu_code: str
+    sigungu_code: str | None
+
+    @property
+    def display_name(self) -> str:
+        if self.sigungu_code is None:
+            return self.sido_name
+        return f"{self.sido_name} {self.sigungu_name}"
 
 
 def _get_default_vworld_key() -> str:
@@ -55,26 +62,30 @@ def _load_region_codes():
 
 
 @st.cache_data(show_spinner=False)
-def _load_sigungu_boundary_projected(sigungu_code: str):
+def _load_sigungu_boundary_projected(sido_code: str, sigungu_code: str | None):
     import geopandas as gpd
 
     path = PATHS.sigungu / "BND_SIGUNGU_PG" / "BND_SIGUNGU_PG.shp"
-    return gpd.read_file(path, where=f"SIGUNGU_CD = '{sigungu_code}'")
+    if sigungu_code is not None:
+        return gpd.read_file(path, where=f"SIGUNGU_CD = '{sigungu_code}'")
+
+    gdf = gpd.read_file(path)
+    return gdf[gdf["SIGUNGU_CD"].astype(str).str.startswith(sido_code)]
 
 
 @st.cache_data(show_spinner=False)
-def _load_sigungu_boundary(sigungu_code: str):
-    gdf = _load_sigungu_boundary_projected(sigungu_code)
+def _load_sigungu_boundary(sido_code: str, sigungu_code: str | None):
+    gdf = _load_sigungu_boundary_projected(sido_code, sigungu_code)
     if not gdf.empty and gdf.crs is not None and gdf.crs.to_epsg() != 4326:
         gdf = gdf.to_crs(4326)
     return gdf
 
 
 @st.cache_data(show_spinner=False)
-def _load_roads_for_sigungu(sigungu_code: str, simplify_tolerance: float):
+def _load_roads_for_region(sido_code: str, sigungu_code: str | None, simplify_tolerance: float):
     import geopandas as gpd
 
-    boundary_gdf = _load_sigungu_boundary_projected(sigungu_code)
+    boundary_gdf = _load_sigungu_boundary_projected(sido_code, sigungu_code)
     if boundary_gdf.empty:
         return gpd.GeoDataFrame(columns=ROAD_COLUMNS, geometry="geometry", crs="EPSG:4326")
 
@@ -106,11 +117,24 @@ def _select_region() -> RegionSelection:
 
     sigungu_rows = regions[regions["sido_name"] == sido_name]
     sigungu_names = sigungu_rows["sigungu_name"].drop_duplicates().tolist()
-    default_sigungu_index = sigungu_names.index(DEFAULT_SIGUNGU) if DEFAULT_SIGUNGU in sigungu_names else 0
-    sigungu_name = st.sidebar.selectbox("시군구", sigungu_names, index=default_sigungu_index)
+    sigungu_options = ["전체", *sigungu_names]
+    default_sigungu_index = (
+        sigungu_options.index(DEFAULT_SIGUNGU) if DEFAULT_SIGUNGU in sigungu_options else 0
+    )
+    sigungu_name = st.sidebar.selectbox("시군구", sigungu_options, index=default_sigungu_index)
+
+    selected_sido = sigungu_rows.iloc[0]
+    if sigungu_name == "전체":
+        return RegionSelection(
+            sido_code=str(selected_sido["sido_code"]),
+            sido_name=sido_name,
+            sigungu_name=sigungu_name,
+            sigungu_code=None,
+        )
 
     selected = sigungu_rows[sigungu_rows["sigungu_name"] == sigungu_name].iloc[0]
     return RegionSelection(
+        sido_code=str(selected["sido_code"]),
         sido_name=sido_name,
         sigungu_name=sigungu_name,
         sigungu_code=str(selected["sigungu_code"]),
@@ -165,11 +189,11 @@ def render_map_app() -> None:
         if not vworld_api_key:
             st.caption("API key가 없으면 임시 기본 배경지도를 표시합니다.")
 
-    boundary_gdf = _load_sigungu_boundary(selection.sigungu_code)
+    boundary_gdf = _load_sigungu_boundary(selection.sido_code, selection.sigungu_code)
     roads_gdf = None
     if show_roads:
         simplify_tolerance = 0.00001 if simplify_roads else 0.0
-        roads_gdf = _load_roads_for_sigungu(selection.sigungu_code, simplify_tolerance)
+        roads_gdf = _load_roads_for_region(selection.sido_code, selection.sigungu_code, simplify_tolerance)
     center = _map_center(boundary_gdf)
 
     import folium
@@ -185,7 +209,7 @@ def render_map_app() -> None:
     if not boundary_gdf.empty:
         folium.GeoJson(
             boundary_gdf.to_json(),
-            name=f"{selection.sido_name} {selection.sigungu_name}",
+            name=selection.display_name,
             tooltip=folium.GeoJsonTooltip(fields=["SIGUNGU_NM", "SIGUNGU_CD"]),
             style_function=lambda _: {
                 "color": "#1d4ed8",

@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 
-JINJU_CENTER = (35.1803, 128.1076)
+SEOUL_CENTER = (37.5665, 126.9780)
+JINJU_CENTER = SEOUL_CENTER
 VWORLD_ATTRIBUTION = "VWorld"
 VWORLD_LAYER_TYPES = {
     "Base": "png",
@@ -50,7 +51,7 @@ def add_vworld_wmts_layer(map_obj, api_key: str, layer: str = "Base", name: str 
 
 
 def make_base_map(
-    center: tuple[float, float] = JINJU_CENTER,
+    center: tuple[float, float] = SEOUL_CENTER,
     zoom_start: int = 12,
     vworld_api_key: str | None = None,
     vworld_layer: str = "Base",

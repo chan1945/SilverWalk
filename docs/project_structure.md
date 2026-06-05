@@ -67,7 +67,7 @@ SilverWalk/
 | `data/SIGUNGU/` | 시군구 행정구역 원본 데이터를 보관한다. |
 | `data/raw/` | 새로 수집한 원본 CSV, SHP, GeoJSON 파일을 저장한다. |
 | `data/external/` | 외부 기관에서 받은 참조 데이터나 보조 데이터를 저장한다. |
-| `data/interim/` | 좌표계 변환, 진주시 필터링 등 중간 처리 결과를 저장한다. |
+| `data/interim/` | 좌표계 변환, 서울시 필터링 등 중간 처리 결과를 저장한다. |
 | `data/processed/` | 모델 학습과 예측에 바로 사용할 수 있는 최종 전처리 데이터를 저장한다. |
 | `data/outputs/` | 사용자에게 제공할 분석 결과 CSV, 예측 결과 GeoJSON 등을 저장한다. |
 | `artifacts/models/` | 학습된 Keras 모델 파일을 저장한다. |
