@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
+from urllib.request import urlopen
 
 import streamlit as st
 
@@ -16,6 +18,10 @@ from silverwalk_ai.visualization.maps import VWORLD_LAYER_TYPES, make_base_map
 DEFAULT_SIDO = "서울특별시"
 DEFAULT_SIGUNGU = "전체"
 HIGH_RISK_THRESHOLD = 50.0
+ONLINE_SEOUL_SIGUNGU_GEOJSON_URL = (
+    "https://raw.githubusercontent.com/southkorea/seoul-maps/master/"
+    "kostat/2013/json/seoul_municipalities_geo_simple.json"
+)
 
 
 @dataclass(frozen=True)
@@ -41,36 +47,71 @@ def _get_default_vworld_key() -> str:
 
 @st.cache_data(show_spinner=False)
 def _load_region_codes():
+    return _load_online_seoul_region_codes()
+
+
+@st.cache_data(show_spinner=False)
+def _load_online_seoul_geojson() -> dict:
+    with urlopen(ONLINE_SEOUL_SIGUNGU_GEOJSON_URL, timeout=20) as response:
+        return json.load(response)
+
+
+@st.cache_data(show_spinner=False)
+def _load_online_seoul_region_codes():
     import pandas as pd
 
-    frame = pd.read_excel(PATHS.sigungu / "센서스 공간정보 지역 코드.xlsx", header=1)
-    frame = frame.rename(
-        columns={
-            "시도코드": "sido_code",
-            "시도명칭": "sido_name",
-            "시군구코드": "sigungu_code_part",
-            "시군구명칭": "sigungu_name",
-        }
-    )
-    frame = frame[["sido_code", "sido_name", "sigungu_code_part", "sigungu_name"]].dropna()
-    frame["sido_code"] = frame["sido_code"].astype(str).str.zfill(2)
-    frame["sigungu_code_part"] = frame["sigungu_code_part"].astype(str).str.zfill(3)
-    frame["sigungu_code"] = frame["sido_code"] + frame["sigungu_code_part"]
-    return frame.drop_duplicates(["sido_name", "sigungu_name", "sigungu_code"]).sort_values(
-        ["sido_name", "sigungu_name"]
-    )
+    try:
+        features = _load_online_seoul_geojson().get("features", [])
+    except Exception:
+        return pd.DataFrame(
+            columns=["sido_code", "sido_name", "sigungu_code_part", "sigungu_name", "sigungu_code"]
+        )
+
+    rows = []
+    for feature in features:
+        properties = feature.get("properties", {})
+        sigungu_code = str(properties.get("code", ""))
+        sigungu_name = properties.get("name")
+        if not sigungu_code or not sigungu_name:
+            continue
+        rows.append(
+            {
+                "sido_code": "11",
+                "sido_name": DEFAULT_SIDO,
+                "sigungu_code_part": sigungu_code[2:],
+                "sigungu_name": sigungu_name,
+                "sigungu_code": sigungu_code,
+            }
+        )
+
+    return pd.DataFrame(rows).sort_values(["sido_name", "sigungu_name"])
 
 
 @st.cache_data(show_spinner=False)
 def _load_sigungu_boundary_projected(sido_code: str, sigungu_code: str | None):
+    return _load_online_seoul_boundary(sido_code, sigungu_code)
+
+
+@st.cache_data(show_spinner=False)
+def _load_online_seoul_boundary(sido_code: str, sigungu_code: str | None):
     import geopandas as gpd
 
-    path = PATHS.sigungu / "BND_SIGUNGU_PG" / "BND_SIGUNGU_PG.shp"
-    if sigungu_code is not None:
-        return gpd.read_file(path, where=f"SIGUNGU_CD = '{sigungu_code}'")
+    if sido_code != "11":
+        return gpd.GeoDataFrame(columns=["SIGUNGU_CD", "SIGUNGU_NM", "geometry"], geometry="geometry", crs=4326)
 
-    gdf = gpd.read_file(path)
-    return gdf[gdf["SIGUNGU_CD"].astype(str).str.startswith(sido_code)]
+    try:
+        geojson = _load_online_seoul_geojson()
+    except Exception:
+        return gpd.GeoDataFrame(columns=["SIGUNGU_CD", "SIGUNGU_NM", "geometry"], geometry="geometry", crs=4326)
+
+    gdf = gpd.GeoDataFrame.from_features(geojson["features"], crs=4326)
+    gdf = gdf.rename(columns={"code": "SIGUNGU_CD", "name": "SIGUNGU_NM"})
+    gdf["SIGUNGU_CD"] = gdf["SIGUNGU_CD"].astype(str)
+
+    if sigungu_code is not None:
+        gdf = gdf[gdf["SIGUNGU_CD"] == sigungu_code]
+
+    return gdf[["SIGUNGU_CD", "SIGUNGU_NM", "geometry"]]
 
 
 @st.cache_data(show_spinner=False)
@@ -94,6 +135,15 @@ def _load_high_risk_points(threshold: float):
 
 def _select_region() -> RegionSelection:
     regions = _load_region_codes()
+    if regions.empty:
+        st.sidebar.caption("행정구 경계 데이터를 불러오지 못해 서울특별시 전체로 표시합니다.")
+        return RegionSelection(
+            sido_code="11",
+            sido_name=DEFAULT_SIDO,
+            sigungu_name=DEFAULT_SIGUNGU,
+            sigungu_code=None,
+        )
+
     sido_names = regions["sido_name"].drop_duplicates().tolist()
 
     default_sido_index = sido_names.index(DEFAULT_SIDO) if DEFAULT_SIDO in sido_names else 0
