@@ -12,6 +12,7 @@ artifacts/preprocessors/*.pkl
 artifacts/preprocessors/*.joblib
 artifacts/preprocessors/*_preprocess_config.json
 artifacts/predictions/*.csv
+artifacts/recommendations/*.csv
 artifacts/reports/*.csv
 artifacts/reports/*.json
 /data/

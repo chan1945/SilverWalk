@@ -130,6 +130,22 @@ export VWORLD_API_KEY="발급받은_API_KEY"
 python scripts/predict/predict_two_stage_zero_risk.py
 ```
 
+지도 툴팁에 포인트별 개선우선순위를 함께 표시하려면 최종 예측 파일을 만든 뒤 SHAP 기반 추천 파일을 생성합니다.
+
+```bash
+python scripts/explain/recommend_improvements.py
+```
+
+이 명령은 `위험도_actual = 0 AND 최종위험도점수_percent > 10` 포인트를 대상으로 두 모델에서 공통으로 위험 기여가 큰 개선 가능 feature를 찾고, 포인트별 개선우선순위 1~3개를 `artifacts/recommendations/point_improvement_recommendations.csv`에 저장합니다.
+
+노트북에서 학습한 모델 파일로 최종 예측을 만들었다면 추천 생성도 같은 모델 파일을 지정합니다.
+
+```bash
+python scripts/explain/recommend_improvements.py \
+  --classifier-model-path artifacts/models/mlp_accident_classifier_notebook.keras \
+  --regressor-model-path artifacts/models/mlp_positive_risk_regressor_notebook.keras
+```
+
 기본 경로는 아래 파일들을 사용합니다.
 
 - 모델 1: `artifacts/models/mlp_accident_classifier.keras`
@@ -137,6 +153,7 @@ python scripts/predict/predict_two_stage_zero_risk.py
 - 전처리 객체: `artifacts/preprocessors/original_train_preprocessor.joblib`
 - 입력 데이터: `data/original_train_data/seoul_road_points.csv`
 - 예측 결과: `artifacts/predictions/two_stage_zero_risk_predictions.csv`
+- 개선우선순위 추천 결과: `artifacts/recommendations/point_improvement_recommendations.csv`
 - 지도 표시 기준: `위험도_actual = 0 AND 최종위험도점수_percent > 10`
 
 지도 등급은 아래 구간으로 표시합니다.
