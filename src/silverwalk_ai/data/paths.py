@@ -22,6 +22,7 @@ class DataPaths:
     sigungu: Path = PROJECT_ROOT / "data" / "SIGUNGU"
     artifacts: Path = PROJECT_ROOT / "artifacts"
     predictions: Path = PROJECT_ROOT / "artifacts" / "predictions"
+    recommendations: Path = PROJECT_ROOT / "artifacts" / "recommendations"
     maps: Path = PROJECT_ROOT / "artifacts" / "maps"
     models: Path = PROJECT_ROOT / "artifacts" / "models"
     preprocessors: Path = PROJECT_ROOT / "artifacts" / "preprocessors"
@@ -40,6 +41,7 @@ def ensure_project_dirs() -> None:
         PATHS.processed,
         PATHS.outputs,
         PATHS.predictions,
+        PATHS.recommendations,
         PATHS.maps,
         PATHS.models,
         PATHS.preprocessors,

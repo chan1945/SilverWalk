@@ -18,6 +18,7 @@ from silverwalk_ai.visualization.maps import VWORLD_LAYER_TYPES, make_base_map
 DEFAULT_SIDO = "서울특별시"
 DEFAULT_SIGUNGU = "전체"
 HIGH_RISK_PERCENT_THRESHOLD = 10.0
+RECOMMENDATION_COLUMNS = [f"개선우선순위{rank}" for rank in range(1, 4)]
 ONLINE_SEOUL_SIGUNGU_GEOJSON_URL = (
     "https://raw.githubusercontent.com/southkorea/seoul-maps/master/"
     "kostat/2013/json/seoul_municipalities_geo_simple.json"
@@ -123,6 +124,21 @@ def _load_sigungu_boundary(sido_code: str, sigungu_code: str | None):
 
 
 @st.cache_data(show_spinner=False)
+def _load_improvement_recommendations():
+    import pandas as pd
+
+    path = PATHS.recommendations / "point_improvement_recommendations.csv"
+    columns = ["POINT_ID", *RECOMMENDATION_COLUMNS]
+    if not path.exists():
+        return pd.DataFrame(columns=columns)
+
+    try:
+        return pd.read_csv(path, usecols=columns)
+    except ValueError:
+        return pd.DataFrame(columns=columns)
+
+
+@st.cache_data(show_spinner=False)
 def _load_high_risk_points(percent_threshold: float):
     import pandas as pd
 
@@ -157,6 +173,15 @@ def _load_high_risk_points(percent_threshold: float):
         (frame["위험도_actual"] == 0)
         & (frame["최종위험도점수_percent"] > percent_threshold)
     ].copy()
+    recommendations = _load_improvement_recommendations()
+    if not recommendations.empty:
+        frame = frame.merge(recommendations, on="POINT_ID", how="left")
+
+    for column in RECOMMENDATION_COLUMNS:
+        if column not in frame.columns:
+            frame[column] = ""
+        frame[column] = frame[column].fillna("")
+
     return frame.sort_values("최종위험도점수_percent", ascending=False)
 
 
@@ -226,6 +251,18 @@ def _high_risk_level(risk: float) -> str:
     return "주의"
 
 
+def _improvement_recommendation_tooltip(row) -> str:
+    recommendations = []
+    for rank, column in enumerate(RECOMMENDATION_COLUMNS, start=1):
+        value = getattr(row, column, "")
+        if value:
+            recommendations.append(f"{rank}. {value}")
+
+    if not recommendations:
+        return ""
+    return "<br>개선우선순위:<br>" + "<br>".join(recommendations)
+
+
 def render_map_app() -> None:
     selection = _select_region()
 
@@ -293,6 +330,7 @@ def render_map_app() -> None:
                     f"위험도 r: {conditional_risk:.3f}<br>"
                     f"최종위험도 점수: {final_score:.3f}<br>"
                     f"최종위험도(%): {risk_percent:.2f}%"
+                    f"{_improvement_recommendation_tooltip(row)}"
                 ),
             ).add_to(high_risk_layer)
         high_risk_layer.add_to(map_obj)
