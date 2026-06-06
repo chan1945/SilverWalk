@@ -123,8 +123,12 @@ def _load_sigungu_boundary(sido_code: str, sigungu_code: str | None):
     return gdf
 
 
+def _file_mtime_ns(path) -> int:
+    return path.stat().st_mtime_ns if path.exists() else 0
+
+
 @st.cache_data(show_spinner=False)
-def _load_improvement_recommendations():
+def _load_improvement_recommendations(file_mtime_ns: int):
     import pandas as pd
 
     path = PATHS.recommendations / "point_improvement_recommendations.csv"
@@ -139,7 +143,7 @@ def _load_improvement_recommendations():
 
 
 @st.cache_data(show_spinner=False)
-def _load_high_risk_points(percent_threshold: float):
+def _load_high_risk_points(percent_threshold: float, prediction_mtime_ns: int, recommendation_mtime_ns: int):
     import pandas as pd
 
     path = PATHS.predictions / "two_stage_zero_risk_predictions.csv"
@@ -173,7 +177,7 @@ def _load_high_risk_points(percent_threshold: float):
         (frame["위험도_actual"] == 0)
         & (frame["최종위험도점수_percent"] > percent_threshold)
     ].copy()
-    recommendations = _load_improvement_recommendations()
+    recommendations = _load_improvement_recommendations(recommendation_mtime_ns)
     if not recommendations.empty:
         frame = frame.merge(recommendations, on="POINT_ID", how="left")
 
@@ -251,16 +255,71 @@ def _high_risk_level(risk: float) -> str:
     return "주의"
 
 
-def _improvement_recommendation_tooltip(row) -> str:
+def _improvement_recommendations(row) -> list[str]:
     recommendations = []
     for rank, column in enumerate(RECOMMENDATION_COLUMNS, start=1):
         value = getattr(row, column, "")
         if value:
-            recommendations.append(f"{rank}. {value}")
+            recommendations.append(str(value))
+    return recommendations
 
-    if not recommendations:
-        return ""
-    return "<br>개선우선순위:<br>" + "<br>".join(recommendations)
+
+def _find_clicked_point(high_risk_points, clicked_object):
+    if high_risk_points is None or high_risk_points.empty or not clicked_object:
+        return None
+    if "lat" not in clicked_object or "lng" not in clicked_object:
+        return None
+
+    import pandas as pd
+
+    clicked_lat = float(clicked_object["lat"])
+    clicked_lng = float(clicked_object["lng"])
+    distances = (
+        (high_risk_points["위도"] - clicked_lat) ** 2
+        + (high_risk_points["경도"] - clicked_lng) ** 2
+    )
+    closest_index = distances.idxmin()
+    if pd.isna(closest_index) or distances.loc[closest_index] > 1e-8:
+        return None
+    return high_risk_points.loc[closest_index]
+
+
+def _render_selected_point_sidebar(selected_point) -> None:
+    st.sidebar.divider()
+    st.sidebar.subheader("선택 포인트")
+
+    if selected_point is None:
+        st.sidebar.caption("지도에서 위험 포인트를 선택하면 개선우선순위가 표시됩니다.")
+        return
+
+    risk_percent = float(selected_point["최종위험도점수_percent"])
+    recommendations = _improvement_recommendations(selected_point)
+
+    st.sidebar.metric("POINT_ID", f"{int(selected_point['POINT_ID'])}")
+    st.sidebar.write(f"등급: {_high_risk_level(risk_percent)}")
+    st.sidebar.write(f"최종위험도: {risk_percent:.2f}%")
+    st.sidebar.write(f"사고발생확률 p: {float(selected_point['사고발생확률_p']):.4f}")
+    st.sidebar.write(f"위험도 r: {float(selected_point['조건부위험도_r']):.3f}")
+
+    st.sidebar.markdown("**개선우선순위**")
+    if recommendations:
+        for rank, recommendation in enumerate(recommendations, start=1):
+            st.sidebar.write(f"{rank}. {recommendation}")
+    else:
+        st.sidebar.caption("두 모델에서 공통으로 양수 기여한 개선 추천 항목이 없습니다.")
+
+
+def _selected_point_from_session(high_risk_points):
+    if high_risk_points is None or high_risk_points.empty:
+        return None
+    selected_point_id = st.session_state.get("selected_point_id")
+    if selected_point_id is None:
+        return None
+
+    rows = high_risk_points[high_risk_points["POINT_ID"] == selected_point_id]
+    if rows.empty:
+        return None
+    return rows.iloc[0]
 
 
 def render_map_app() -> None:
@@ -274,7 +333,13 @@ def render_map_app() -> None:
 
     boundary_gdf = _load_sigungu_boundary(selection.sido_code, selection.sigungu_code)
     try:
-        high_risk_points = _load_high_risk_points(HIGH_RISK_PERCENT_THRESHOLD)
+        prediction_path = PATHS.predictions / "two_stage_zero_risk_predictions.csv"
+        recommendation_path = PATHS.recommendations / "point_improvement_recommendations.csv"
+        high_risk_points = _load_high_risk_points(
+            HIGH_RISK_PERCENT_THRESHOLD,
+            _file_mtime_ns(prediction_path),
+            _file_mtime_ns(recommendation_path),
+        )
     except (FileNotFoundError, ValueError) as error:
         st.error(str(error))
         high_risk_points = None
@@ -330,7 +395,6 @@ def render_map_app() -> None:
                     f"위험도 r: {conditional_risk:.3f}<br>"
                     f"최종위험도 점수: {final_score:.3f}<br>"
                     f"최종위험도(%): {risk_percent:.2f}%"
-                    f"{_improvement_recommendation_tooltip(row)}"
                 ),
             ).add_to(high_risk_layer)
         high_risk_layer.add_to(map_obj)
@@ -339,4 +403,16 @@ def render_map_app() -> None:
         )
 
     folium.LayerControl(collapsed=False).add_to(map_obj)
-    st_folium(map_obj, height=760, width="100%")
+    map_state = st_folium(
+        map_obj,
+        height=760,
+        width="100%",
+        returned_objects=["last_object_clicked"],
+    )
+    clicked_object = map_state.get("last_object_clicked") if map_state else None
+    clicked_point = _find_clicked_point(high_risk_points, clicked_object)
+    if clicked_point is not None:
+        st.session_state["selected_point_id"] = int(clicked_point["POINT_ID"])
+
+    selected_point = clicked_point if clicked_point is not None else _selected_point_from_session(high_risk_points)
+    _render_selected_point_sidebar(selected_point)
