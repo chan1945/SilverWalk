@@ -15,7 +15,15 @@ from tensorflow.keras import layers
 from silverwalk_ai.features.preprocessing import TARGET_COLUMN, TARGET_LOG_COLUMN
 
 
-DEFAULT_METADATA_COLUMNS = ["POINT_ID", "위도", "경도", TARGET_COLUMN, TARGET_LOG_COLUMN]
+ACCIDENT_TARGET_COLUMN = "사고발생"
+DEFAULT_METADATA_COLUMNS = [
+    "POINT_ID",
+    "위도",
+    "경도",
+    TARGET_COLUMN,
+    TARGET_LOG_COLUMN,
+    ACCIDENT_TARGET_COLUMN,
+]
 
 
 @dataclass(frozen=True)
@@ -196,6 +204,39 @@ def build_mlp_model(
     return model
 
 
+def build_accident_classifier_model(
+    input_dim: int,
+    config: MLPTrainingConfig | None = None,
+) -> keras.Model:
+    """`위험도 > 0` 여부를 예측하는 사고 발생 분류 MLP를 생성한다."""
+    config = config or MLPTrainingConfig()
+
+    inputs = keras.Input(shape=(input_dim,), name="features")
+    x = inputs
+
+    for layer_index, units in enumerate(config.hidden_units):
+        x = layers.Dense(units, activation="relu", name=f"dense_{layer_index + 1}")(x)
+        if layer_index < 2:
+            x = layers.BatchNormalization(name=f"batch_norm_{layer_index + 1}")(x)
+            if config.dropout_rate > 0:
+                x = layers.Dropout(config.dropout_rate, name=f"dropout_{layer_index + 1}")(x)
+
+    outputs = layers.Dense(1, activation="sigmoid", dtype="float32", name="accident_probability")(x)
+    model = keras.Model(inputs=inputs, outputs=outputs, name="silverwalk_mlp_accident_classifier")
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=config.learning_rate),
+        loss=keras.losses.BinaryCrossentropy(),
+        metrics=[
+            keras.metrics.BinaryAccuracy(name="accuracy", threshold=0.5),
+            keras.metrics.Precision(name="precision", thresholds=0.5),
+            keras.metrics.Recall(name="recall", thresholds=0.5),
+            keras.metrics.AUC(name="roc_auc", curve="ROC"),
+            keras.metrics.AUC(name="pr_auc", curve="PR"),
+        ],
+    )
+    return model
+
+
 def make_training_callbacks(
     model_path: Path | None = None,
     early_stopping_patience: int = 10,
@@ -230,6 +271,16 @@ def make_training_callbacks(
     return callbacks
 
 
+def add_accident_target(frame: pd.DataFrame) -> pd.DataFrame:
+    """원본 위험도에서 모델 1 분류 라벨인 `사고발생`을 파생한다."""
+    if TARGET_COLUMN not in frame.columns:
+        raise ValueError(f"Target column not found: {TARGET_COLUMN}")
+
+    result = frame.copy()
+    result[ACCIDENT_TARGET_COLUMN] = (result[TARGET_COLUMN] > 0).astype(np.float32)
+    return result
+
+
 def train_mlp_model(
     train_frame: pd.DataFrame,
     val_frame: pd.DataFrame,
@@ -246,6 +297,48 @@ def train_mlp_model(
     x_val, y_val, _ = split_features_target(val_frame, features)
 
     model = build_mlp_model(input_dim=x_train.shape[1], config=config)
+    callbacks = make_training_callbacks(
+        model_path=model_path,
+        early_stopping_patience=config.early_stopping_patience,
+        reduce_lr_patience=config.reduce_lr_patience,
+    )
+    history = model.fit(
+        x_train,
+        y_train,
+        validation_data=(x_val, y_val),
+        epochs=config.epochs,
+        batch_size=config.batch_size,
+        callbacks=callbacks,
+        verbose=config.verbose,
+    )
+    return model, history, features
+
+
+def train_accident_classifier_model(
+    train_frame: pd.DataFrame,
+    val_frame: pd.DataFrame,
+    config: MLPTrainingConfig | None = None,
+    feature_columns: list[str] | None = None,
+    model_path: Path | None = None,
+) -> tuple[keras.Model, keras.callbacks.History, list[str]]:
+    """모델 1: 사고 발생 여부 분류 MLP를 학습한다."""
+    config = config or MLPTrainingConfig()
+    set_random_seed(config.random_state)
+
+    train_frame = add_accident_target(train_frame)
+    val_frame = add_accident_target(val_frame)
+    x_train, y_train, features = split_features_target(
+        train_frame,
+        feature_columns=feature_columns,
+        target_column=ACCIDENT_TARGET_COLUMN,
+    )
+    x_val, y_val, _ = split_features_target(
+        val_frame,
+        feature_columns=features,
+        target_column=ACCIDENT_TARGET_COLUMN,
+    )
+
+    model = build_accident_classifier_model(input_dim=x_train.shape[1], config=config)
     callbacks = make_training_callbacks(
         model_path=model_path,
         early_stopping_patience=config.early_stopping_patience,
@@ -283,6 +376,113 @@ def predict_risk(
     return result
 
 
+def predict_accident_probability(
+    model: keras.Model,
+    frame: pd.DataFrame,
+    feature_columns: list[str],
+    batch_size: int = 4096,
+    threshold: float = 0.5,
+) -> pd.DataFrame:
+    """사고 발생 확률을 예측하고 실제 사고 발생 라벨과 함께 반환한다."""
+    labeled_frame = add_accident_target(frame)
+    x, y_true, _ = split_features_target(
+        labeled_frame,
+        feature_columns=feature_columns,
+        target_column=ACCIDENT_TARGET_COLUMN,
+    )
+    probabilities = model.predict(x, batch_size=batch_size, verbose=0).reshape(-1)
+
+    result = labeled_frame[["POINT_ID", "위도", "경도", TARGET_COLUMN, ACCIDENT_TARGET_COLUMN]].copy()
+    result["사고발생확률"] = probabilities
+    result["사고발생예측"] = (probabilities >= threshold).astype(int)
+    result[ACCIDENT_TARGET_COLUMN] = y_true.astype(int)
+    return result
+
+
+def predict_unlabeled_risk(
+    model: keras.Model,
+    frame: pd.DataFrame,
+    feature_columns: list[str],
+    batch_size: int = 4096,
+) -> pd.DataFrame:
+    """라벨 없는 전체 포인트 데이터에 대해 위험도를 예측해 `위험도_pred`를 반환한다."""
+    x = frame[feature_columns].to_numpy(dtype=np.float32)
+    pred_log = model.predict(x, batch_size=batch_size, verbose=0).reshape(-1)
+
+    # 모델 출력은 log1p 위험도이므로 사람이 해석하는 원래 위험도 scale로 되돌린다.
+    pred_risk = np.expm1(pred_log)
+    pred_risk = np.clip(pred_risk, 0, None)
+
+    result = frame[["POINT_ID", "위도", "경도"]].copy()
+    result["위험도_pred_log1p"] = pred_log
+    result["위험도_pred"] = pred_risk
+    return result
+
+
+def binary_classification_metrics(
+    actual: np.ndarray,
+    probability: np.ndarray,
+    threshold: float = 0.5,
+) -> dict[str, float]:
+    """고정 threshold에서 기본 이진 분류 지표를 계산한다."""
+    actual = np.asarray(actual, dtype=np.int32)
+    probability = np.asarray(probability, dtype=np.float64)
+    predicted = (probability >= threshold).astype(np.int32)
+
+    tp = int(((actual == 1) & (predicted == 1)).sum())
+    fp = int(((actual == 0) & (predicted == 1)).sum())
+    tn = int(((actual == 0) & (predicted == 0)).sum())
+    fn = int(((actual == 1) & (predicted == 0)).sum())
+
+    precision = tp / (tp + fp) if tp + fp > 0 else 0.0
+    recall = tp / (tp + fn) if tp + fn > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
+    accuracy = (tp + tn) / len(actual) if len(actual) > 0 else 0.0
+
+    return {
+        "threshold": float(threshold),
+        "accuracy": float(accuracy),
+        "precision": float(precision),
+        "recall": float(recall),
+        "f1": float(f1),
+        "true_positive": tp,
+        "false_positive": fp,
+        "true_negative": tn,
+        "false_negative": fn,
+    }
+
+
+def top_k_classification_metrics(
+    actual: np.ndarray,
+    probability: np.ndarray,
+    k_values: tuple[int, ...] = (100, 300, 500, 700, 1000),
+) -> dict[str, dict[str, float]]:
+    """사고 발생 확률 상위 K개 기준 Precision@K, Recall@K, F1@K를 계산한다."""
+    actual = np.asarray(actual, dtype=np.int32)
+    probability = np.asarray(probability, dtype=np.float64)
+    order = np.argsort(-probability)
+    positive_count = int((actual == 1).sum())
+
+    metrics: dict[str, dict[str, float]] = {}
+    for requested_k in k_values:
+        k = min(int(requested_k), len(actual))
+        if k <= 0:
+            continue
+        top_indices = order[:k]
+        hit_count = int((actual[top_indices] == 1).sum())
+        precision = hit_count / k
+        recall = hit_count / positive_count if positive_count > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
+        metrics[str(requested_k)] = {
+            "k": k,
+            "hit_count": hit_count,
+            "precision_at_k": float(precision),
+            "recall_at_k": float(recall),
+            "f1_at_k": float(f1),
+        }
+    return metrics
+
+
 def regression_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
     """하나의 타겟 scale에 대해 기본 회귀 지표를 계산한다."""
     actual = np.asarray(actual, dtype=np.float64)
@@ -318,6 +518,33 @@ def evaluate_predictions(predictions: pd.DataFrame) -> dict[str, Any]:
             "actual_gt_50": int((predictions[TARGET_COLUMN] > 50).sum()),
             "pred_gt_50": int((predictions["pred_위험도"] > 50).sum()),
         },
+    }
+
+
+def evaluate_accident_predictions(
+    predictions: pd.DataFrame,
+    threshold: float = 0.5,
+    k_values: tuple[int, ...] = (100, 300, 500, 700, 1000),
+) -> dict[str, Any]:
+    """모델 1 사고 발생 분류 결과를 threshold와 Top-K 관점에서 평가한다."""
+    actual = predictions[ACCIDENT_TARGET_COLUMN].to_numpy()
+    probability = predictions["사고발생확률"].to_numpy()
+    return {
+        "target_counts": {
+            "rows": int(len(predictions)),
+            "actual_positive": int((predictions[ACCIDENT_TARGET_COLUMN] == 1).sum()),
+            "actual_negative": int((predictions[ACCIDENT_TARGET_COLUMN] == 0).sum()),
+        },
+        "threshold_metrics": binary_classification_metrics(
+            actual,
+            probability,
+            threshold=threshold,
+        ),
+        "top_k_metrics": top_k_classification_metrics(
+            actual,
+            probability,
+            k_values=k_values,
+        ),
     }
 
 

@@ -77,7 +77,21 @@ class OriginalTrainPreprocessor:
 
         metadata_frame = frame[[*ID_COLUMNS, *COORDINATE_COLUMNS, TARGET_COLUMN]].copy()
         metadata_frame[TARGET_LOG_COLUMN] = np.log1p(frame[TARGET_COLUMN].clip(lower=0))
+        feature_frame = self._transform_feature_frame(frame)
+        return pd.concat([metadata_frame, feature_frame], axis=1)
 
+    def transform_features(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """라벨 없는 추론 데이터에 학습 때와 같은 feature 변환을 적용한다."""
+        if not self.fitted:
+            raise RuntimeError("Preprocessor must be fitted before transform_features().")
+        validate_prediction_columns(frame, self.feature_columns)
+
+        metadata_frame = frame[[*ID_COLUMNS, *COORDINATE_COLUMNS]].copy()
+        feature_frame = self._transform_feature_frame(frame)
+        return pd.concat([metadata_frame, feature_frame], axis=1)
+
+    def _transform_feature_frame(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """학습 시 저장된 결측치/클리핑/스케일링 규칙으로 feature만 변환한다."""
         scale_frame = self._make_scale_frame(frame)
         scaled_values = self.scaler.transform(scale_frame[self.scale_columns])
         scaled_frame = pd.DataFrame(
@@ -98,8 +112,7 @@ class OriginalTrainPreprocessor:
             else:
                 feature_parts[column] = scaled_frame[column]
 
-        feature_frame = pd.DataFrame(feature_parts, index=frame.index)
-        return pd.concat([metadata_frame, feature_frame], axis=1)
+        return pd.DataFrame(feature_parts, index=frame.index)
 
     def fit_transform(self, frame: pd.DataFrame) -> pd.DataFrame:
         return self.fit(frame).transform(frame)
@@ -183,6 +196,13 @@ def validate_required_columns(frame: pd.DataFrame) -> None:
     missing = [column for column in EXCLUDED_MODEL_COLUMNS if column not in frame.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
+
+
+def validate_prediction_columns(frame: pd.DataFrame, feature_columns: list[str]) -> None:
+    required_columns = [*ID_COLUMNS, *COORDINATE_COLUMNS, *feature_columns]
+    missing = [column for column in required_columns if column not in frame.columns]
+    if missing:
+        raise ValueError(f"Missing required prediction columns: {missing}")
 
 
 def make_risk_stratification_bins(risk: pd.Series) -> pd.Series:
