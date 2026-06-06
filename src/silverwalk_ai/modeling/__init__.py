@@ -6,6 +6,7 @@ from silverwalk_ai.modeling.mlp import (
     configure_tensorflow_device,
     evaluate_predictions,
     predict_risk,
+    predict_unlabeled_risk,
     train_mlp_model,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "configure_tensorflow_device",
     "evaluate_predictions",
     "predict_risk",
+    "predict_unlabeled_risk",
     "train_mlp_model",
 ]

@@ -113,6 +113,29 @@ export VWORLD_API_KEY="발급받은_API_KEY"
 
 ### 7. 앱 실행
 
+지도는 `artifacts/predictions/mlp_risk_all_points.csv`의 `위험도_actual`과 `위험도_pred_percent`를 사용합니다. 예측 스크립트는 원본 `위험도 = 0`인 포인트만 학습된 MLP에 넣어 예측합니다. `위험도_pred_percent`는 예측 대상 안에서 최대 `위험도_pred`를 100%로 두고 환산한 상대 위험도입니다.
+
+지도에는 아래 조건을 모두 만족하는 포인트만 표시합니다.
+
+```text
+위험도_actual = 0
+위험도_pred_percent > 50
+```
+
+이 파일이 없거나 `위험도_pred_percent` 컬럼이 없으면 학습된 모델과 전처리 파일을 받은 뒤 먼저 전체 포인트 예측을 실행합니다.
+
+```bash
+python scripts/predict/predict_all_points.py
+```
+
+기본 경로는 아래 파일들을 사용합니다.
+
+- 모델: `artifacts/models/mlp_risk.keras`
+- 전처리 객체: `artifacts/preprocessors/original_train_preprocessor.joblib`
+- 입력 데이터: `data/original_train_data/seoul_road_points.csv`
+- 예측 결과: `artifacts/predictions/mlp_risk_all_points.csv`
+- 지도 표시 기준: `위험도_actual = 0 AND 위험도_pred_percent > 50`
+
 ```bash
 streamlit run streamlit_app.py
 ```
@@ -140,6 +163,14 @@ pip install -r requirements.txt
 
 ```text
 data/original_train_data/seoul_road_points.csv
+```
+
+### `전체 포인트 예측 파일이 없습니다`
+
+지도에서 사용할 `위험도_pred_percent` 파일이 없는 상태입니다. 학습된 모델과 전처리 객체를 준비한 뒤 아래 명령을 실행합니다.
+
+```bash
+python scripts/predict/predict_all_points.py
 ```
 
 ### 지도가 뜨지 않거나 경계가 표시되지 않음

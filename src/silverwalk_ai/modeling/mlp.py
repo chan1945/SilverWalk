@@ -283,6 +283,26 @@ def predict_risk(
     return result
 
 
+def predict_unlabeled_risk(
+    model: keras.Model,
+    frame: pd.DataFrame,
+    feature_columns: list[str],
+    batch_size: int = 4096,
+) -> pd.DataFrame:
+    """라벨 없는 전체 포인트 데이터에 대해 위험도를 예측해 `위험도_pred`를 반환한다."""
+    x = frame[feature_columns].to_numpy(dtype=np.float32)
+    pred_log = model.predict(x, batch_size=batch_size, verbose=0).reshape(-1)
+
+    # 모델 출력은 log1p 위험도이므로 사람이 해석하는 원래 위험도 scale로 되돌린다.
+    pred_risk = np.expm1(pred_log)
+    pred_risk = np.clip(pred_risk, 0, None)
+
+    result = frame[["POINT_ID", "위도", "경도"]].copy()
+    result["위험도_pred_log1p"] = pred_log
+    result["위험도_pred"] = pred_risk
+    return result
+
+
 def regression_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
     """하나의 타겟 scale에 대해 기본 회귀 지표를 계산한다."""
     actual = np.asarray(actual, dtype=np.float64)
