@@ -113,28 +113,39 @@ export VWORLD_API_KEY="발급받은_API_KEY"
 
 ### 7. 앱 실행
 
-지도는 `artifacts/predictions/mlp_risk_all_points.csv`의 `위험도_actual`과 `위험도_pred_percent`를 사용합니다. 예측 스크립트는 원본 `위험도 = 0`인 포인트만 학습된 MLP에 넣어 예측합니다. `위험도_pred_percent`는 예측 대상 안에서 최대 `위험도_pred`를 100%로 두고 환산한 상대 위험도입니다.
+지도는 `artifacts/predictions/two_stage_zero_risk_predictions.csv`의 `위험도_actual`과 `최종위험도점수_percent`를 사용합니다. 예측 스크립트는 원본 `위험도 = 0`인 포인트만 대상으로 모델 1의 `사고발생확률_p`와 모델 2의 `조건부위험도_r`을 예측한 뒤 `최종위험도점수 = p * r`을 계산합니다.
+
+`최종위험도점수_percent`는 예측 대상 안에서 최대 `최종위험도점수`를 100%로 두고 환산한 상대 위험도입니다.
 
 지도에는 아래 조건을 모두 만족하는 포인트만 표시합니다.
 
 ```text
 위험도_actual = 0
-위험도_pred_percent > 50
+최종위험도점수_percent > 10
 ```
 
-이 파일이 없거나 `위험도_pred_percent` 컬럼이 없으면 학습된 모델과 전처리 파일을 받은 뒤 먼저 전체 포인트 예측을 실행합니다.
+이 파일이 없거나 `최종위험도점수_percent` 컬럼이 없으면 모델 1, 모델 2, 전처리 파일을 준비한 뒤 먼저 두 모델 결합 예측을 실행합니다.
 
 ```bash
-python scripts/predict/predict_all_points.py
+python scripts/predict/predict_two_stage_zero_risk.py
 ```
 
 기본 경로는 아래 파일들을 사용합니다.
 
-- 모델: `artifacts/models/mlp_risk.keras`
+- 모델 1: `artifacts/models/mlp_accident_classifier.keras`
+- 모델 2: `artifacts/models/mlp_positive_risk_regressor.keras`
 - 전처리 객체: `artifacts/preprocessors/original_train_preprocessor.joblib`
 - 입력 데이터: `data/original_train_data/seoul_road_points.csv`
-- 예측 결과: `artifacts/predictions/mlp_risk_all_points.csv`
-- 지도 표시 기준: `위험도_actual = 0 AND 위험도_pred_percent > 50`
+- 예측 결과: `artifacts/predictions/two_stage_zero_risk_predictions.csv`
+- 지도 표시 기준: `위험도_actual = 0 AND 최종위험도점수_percent > 10`
+
+지도 등급은 아래 구간으로 표시합니다.
+
+| 구간 | 등급 |
+|---|---|
+| `10% 초과 ~ 30% 미만` | 주의 |
+| `30% 이상 ~ 50% 미만` | 경고 |
+| `50% 이상` | 위험 |
 
 ```bash
 streamlit run streamlit_app.py
@@ -165,12 +176,12 @@ pip install -r requirements.txt
 data/original_train_data/seoul_road_points.csv
 ```
 
-### `전체 포인트 예측 파일이 없습니다`
+### `두 모델 결합 최종 결과 파일이 없습니다`
 
-지도에서 사용할 `위험도_pred_percent` 파일이 없는 상태입니다. 학습된 모델과 전처리 객체를 준비한 뒤 아래 명령을 실행합니다.
+지도에서 사용할 `최종위험도점수_percent` 파일이 없는 상태입니다. 모델 1, 모델 2, 전처리 객체를 준비한 뒤 아래 명령을 실행합니다.
 
 ```bash
-python scripts/predict/predict_all_points.py
+python scripts/predict/predict_two_stage_zero_risk.py
 ```
 
 ### 지도가 뜨지 않거나 경계가 표시되지 않음

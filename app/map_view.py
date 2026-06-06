@@ -17,7 +17,7 @@ from silverwalk_ai.visualization.maps import VWORLD_LAYER_TYPES, make_base_map
 
 DEFAULT_SIDO = "서울특별시"
 DEFAULT_SIGUNGU = "전체"
-HIGH_RISK_PERCENT_THRESHOLD = 50.0
+HIGH_RISK_PERCENT_THRESHOLD = 10.0
 ONLINE_SEOUL_SIGUNGU_GEOJSON_URL = (
     "https://raw.githubusercontent.com/southkorea/seoul-maps/master/"
     "kostat/2013/json/seoul_municipalities_geo_simple.json"
@@ -126,11 +126,11 @@ def _load_sigungu_boundary(sido_code: str, sigungu_code: str | None):
 def _load_high_risk_points(percent_threshold: float):
     import pandas as pd
 
-    path = PATHS.predictions / "mlp_risk_all_points.csv"
+    path = PATHS.predictions / "two_stage_zero_risk_predictions.csv"
     if not path.exists():
         raise FileNotFoundError(
-            "전체 포인트 예측 파일이 없습니다. "
-            "`python scripts/predict/predict_all_points.py`를 먼저 실행하십시오."
+            "두 모델 결합 최종 결과 파일이 없습니다. "
+            "`python scripts/predict/predict_two_stage_zero_risk.py`를 먼저 실행하십시오."
         )
 
     try:
@@ -141,21 +141,23 @@ def _load_high_risk_points(percent_threshold: float):
                 "위도",
                 "경도",
                 "위험도_actual",
-                "위험도_pred",
-                "위험도_pred_percent",
+                "사고발생확률_p",
+                "조건부위험도_r",
+                "최종위험도점수",
+                "최종위험도점수_percent",
             ],
         )
     except ValueError as error:
         raise ValueError(
-            "전체 포인트 예측 파일에 `위험도_actual` 또는 `위험도_pred_percent` 컬럼이 없습니다. "
-            "`python scripts/predict/predict_all_points.py`를 다시 실행하십시오."
+            "두 모델 결합 최종 결과 파일에 필요한 컬럼이 없습니다. "
+            "`python scripts/predict/predict_two_stage_zero_risk.py`를 다시 실행하십시오."
         ) from error
-    frame = frame.dropna(subset=["위도", "경도", "위험도_actual", "위험도_pred_percent"])
+    frame = frame.dropna(subset=["위도", "경도", "위험도_actual", "최종위험도점수_percent"])
     frame = frame[
         (frame["위험도_actual"] == 0)
-        & (frame["위험도_pred_percent"] > percent_threshold)
+        & (frame["최종위험도점수_percent"] > percent_threshold)
     ].copy()
-    return frame.sort_values("위험도_pred_percent", ascending=False)
+    return frame.sort_values("최종위험도점수_percent", ascending=False)
 
 
 def _select_region() -> RegionSelection:
@@ -209,13 +211,19 @@ def _map_center(boundary_gdf) -> tuple[float, float]:
 
 
 def _high_risk_point_color(risk: float) -> str:
-    if risk >= 90:
-        return "#7f1d1d"
-    if risk >= 75:
+    if risk >= 50:
         return "#dc2626"
-    if risk >= 60:
+    if risk >= 30:
         return "#f97316"
     return "#facc15"
+
+
+def _high_risk_level(risk: float) -> str:
+    if risk >= 50:
+        return "위험"
+    if risk >= 30:
+        return "경고"
+    return "주의"
 
 
 def render_map_app() -> None:
@@ -262,12 +270,14 @@ def render_map_app() -> None:
 
     if high_risk_points is not None:
         high_risk_layer = folium.FeatureGroup(
-            name=f"예측 위험도 {HIGH_RISK_PERCENT_THRESHOLD:g}% 초과 포인트",
+            name=f"최종 위험도 {HIGH_RISK_PERCENT_THRESHOLD:g}% 초과 포인트",
             show=True,
         )
         for row in high_risk_points.itertuples(index=False):
-            risk = float(getattr(row, "위험도_pred"))
-            risk_percent = float(getattr(row, "위험도_pred_percent"))
+            accident_probability = float(getattr(row, "사고발생확률_p"))
+            conditional_risk = float(getattr(row, "조건부위험도_r"))
+            final_score = float(getattr(row, "최종위험도점수"))
+            risk_percent = float(getattr(row, "최종위험도점수_percent"))
             color = _high_risk_point_color(risk_percent)
             folium.CircleMarker(
                 location=(float(getattr(row, "위도")), float(getattr(row, "경도"))),
@@ -278,15 +288,16 @@ def render_map_app() -> None:
                 fill_color=color,
                 fill_opacity=0.82,
                 tooltip=(
-                    f"POINT_ID: {int(getattr(row, 'POINT_ID'))}<br>"
-                    f"원본 위험도: {float(getattr(row, '위험도_actual')):.3f}<br>"
-                    f"예측 위험도: {risk:.3f}<br>"
-                    f"예측 위험도(%): {risk_percent:.2f}%"
+                    f"등급: {_high_risk_level(risk_percent)}<br>"
+                    f"사고발생확률 p: {accident_probability:.4f}<br>"
+                    f"위험도 r: {conditional_risk:.3f}<br>"
+                    f"최종위험도 점수: {final_score:.3f}<br>"
+                    f"최종위험도(%): {risk_percent:.2f}%"
                 ),
             ).add_to(high_risk_layer)
         high_risk_layer.add_to(map_obj)
         st.sidebar.caption(
-            f"예측 위험도 {HIGH_RISK_PERCENT_THRESHOLD:g}% 초과 포인트 {len(high_risk_points):,}개"
+            f"최종 위험도 {HIGH_RISK_PERCENT_THRESHOLD:g}% 초과 포인트 {len(high_risk_points):,}개"
         )
 
     folium.LayerControl(collapsed=False).add_to(map_obj)
