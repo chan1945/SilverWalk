@@ -12,7 +12,9 @@ artifacts/preprocessors/*.pkl
 artifacts/preprocessors/*.joblib
 artifacts/preprocessors/*_preprocess_config.json
 artifacts/predictions/*.csv
+!artifacts/predictions/two_stage_zero_risk_predictions.csv
 artifacts/recommendations/*.csv
+!artifacts/recommendations/point_improvement_recommendations.csv
 artifacts/reports/*.csv
 artifacts/reports/*.json
 /data/
