@@ -241,16 +241,20 @@ def make_training_callbacks(
     model_path: Path | None = None,
     early_stopping_patience: int = 10,
     reduce_lr_patience: int = 4,
+    monitor: str = "val_loss",
+    mode: str = "min",
 ) -> list[keras.callbacks.Callback]:
     """조기 종료, 학습률 감소, 체크포인트 저장 콜백을 만든다."""
     callbacks: list[keras.callbacks.Callback] = [
         keras.callbacks.EarlyStopping(
-            monitor="val_loss",
+            monitor=monitor,
+            mode=mode,
             patience=early_stopping_patience,
             restore_best_weights=True,
         ),
         keras.callbacks.ReduceLROnPlateau(
-            monitor="val_loss",
+            monitor=monitor,
+            mode=mode,
             factor=0.5,
             patience=reduce_lr_patience,
             min_lr=1e-6,
@@ -263,7 +267,8 @@ def make_training_callbacks(
         callbacks.append(
             keras.callbacks.ModelCheckpoint(
                 filepath=str(model_path),
-                monitor="val_loss",
+                monitor=monitor,
+                mode=mode,
                 save_best_only=True,
             )
         )
@@ -343,6 +348,8 @@ def train_accident_classifier_model(
         model_path=model_path,
         early_stopping_patience=config.early_stopping_patience,
         reduce_lr_patience=config.reduce_lr_patience,
+        monitor="val_pr_auc",
+        mode="max",
     )
     history = model.fit(
         x_train,

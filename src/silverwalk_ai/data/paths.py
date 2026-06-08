@@ -23,6 +23,7 @@ class DataPaths:
     artifacts: Path = PROJECT_ROOT / "artifacts"
     predictions: Path = PROJECT_ROOT / "artifacts" / "predictions"
     recommendations: Path = PROJECT_ROOT / "artifacts" / "recommendations"
+    experiments: Path = PROJECT_ROOT / "artifacts" / "experiments"
     maps: Path = PROJECT_ROOT / "artifacts" / "maps"
     models: Path = PROJECT_ROOT / "artifacts" / "models"
     preprocessors: Path = PROJECT_ROOT / "artifacts" / "preprocessors"
@@ -42,6 +43,7 @@ def ensure_project_dirs() -> None:
         PATHS.outputs,
         PATHS.predictions,
         PATHS.recommendations,
+        PATHS.experiments,
         PATHS.maps,
         PATHS.models,
         PATHS.preprocessors,
