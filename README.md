@@ -1,19 +1,10 @@
 # SilverWalk
 
-SilverWalk는 서울시 도로 주변 포인트를 기준으로 노인보행사고 위험도를 지도에서 확인하는 Streamlit 앱 프로젝트입니다.
-
-현재 앱은 다음 데이터를 사용합니다.
-
-- 서울시 경계: 온라인 공개 GeoJSON을 앱 실행 시 로딩합니다. 로컬 경계 파일은 필요하지 않습니다.
-- 위험도 포인트: `data/original_train_data/seoul_road_points.csv` 로컬 CSV를 사용합니다.
-
-`data/`는 GitHub 저장소에 포함하지 않습니다. 팀원은 저장소를 clone한 뒤 필요한 CSV 파일만 별도로 전달받아 같은 경로에 배치하면 됩니다. Git LFS는 필요하지 않습니다.
-
 ## Mac 실행 방법
 
 ### 1. 필수 프로그램 설치
 
-Mac에 Git과 Python 3.10 이상이 필요합니다.
+Mac에 Git과 Python 3.10 이상이 필요
 
 Homebrew를 사용하는 경우:
 
@@ -62,11 +53,9 @@ Mac에서 TensorFlow 또는 CUDA 관련 패키지 설치가 실패하고 Streaml
 pip install streamlit streamlit-folium folium geopandas shapely pyogrio fiona pandas numpy openpyxl scikit-learn matplotlib
 ```
 
-이 경우 MLP 학습 코드는 실행하지 못할 수 있지만, 현재 지도 앱 실행에는 충분합니다.
-
 ### 5. 데이터 파일 배치
 
-팀원에게 공유한 `seoul_road_points.csv` 파일을 아래 경로에 둡니다.
+원본 데이터 파일 배치
 
 ```text
 data/original_train_data/seoul_road_points.csv
@@ -84,7 +73,6 @@ mkdir -p data/original_train_data
 ls -lh data/original_train_data/seoul_road_points.csv
 ```
 
-경계 시각화용 `data/SIGUNGU` 폴더나 Shapefile은 필요하지 않습니다.
 
 ### 6. VWorld API Key 설정
 
